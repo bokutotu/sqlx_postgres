@@ -1,0 +1,33 @@
+version: "3"
+services:
+  db:
+    image: postgres:14
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    networks:
+      - app-net
+  back:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    tty: true
+    volumes: 
+      - .:/back
+    ports:
+      - "8000:8000"
+    command: sh -c "cargo run"
+    networks:
+      - app-net
+
+volumes:
+  dbdata:
+    driver: local
+
+networks:
+  app-net:
+    driver: bridge
