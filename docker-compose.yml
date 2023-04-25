@@ -23,6 +23,8 @@ services:
     command: sh -c "cargo run"
     networks:
       - app-net
+    environment:
+      - DATABASE_URL=postgres://postgres:password@db:5432/postgres
 
 volumes:
   dbdata:

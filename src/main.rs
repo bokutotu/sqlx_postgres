@@ -1,79 +1,66 @@
 #![allow(unused)] // silence unused warnings while exploring (to comment out)
 
+use std::str::FromStr;
+
 use sqlx::postgres::{PgPoolOptions, PgRow};
+use sqlx::types::Uuid;
 use sqlx::{FromRow, Row};
 
-// Youtube episode: https://youtu.be/VuVOyUbFSI0
-
-// region:    Section
-
-// Start postgresql server docker image:
-// docker run --rm --name pg -p 5432:5432  -e POSTGRES_PASSWORD=welcome  postgres:13
-
-// In another terminal (tab) run psql:
-// docker exec -it -u postgres pg psql
-
-// To log all sql query out to the first terminal, in psql run:
-// ALTER DATABASE postgres SET log_statement = 'all';
-
-// endregion: Section
-
+use chrono::{DateTime, Local, NaiveDateTime};
 
 #[derive(Debug, FromRow)]
-struct Ticket {
-	id: i64,
-	name: String,
+struct Users {
+    id: uuid::Uuid,
+    name: String,
+    password: String,
+    email: String,
+    created_at: NaiveDateTime,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), sqlx::Error> {
-	// 1) Create a connection pool
-	let pool = PgPoolOptions::new()
-		.max_connections(5)
-		.connect("postgres://postgres:password@db:5432/postgres")
-		.await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect("postgres://postgres:password@db:5432/postgres")
+        .await?;
 
-	// 2) Create table if not exist yet
-	sqlx::query(
-		r#"
-CREATE TABLE IF NOT EXISTS ticket (
-  id bigserial,
-  name text
-);"#,
-	)
-	.execute(&pool)
-	.await?;
+    sqlx::migrate!("./migrations/").run(&pool).await?;
 
-	// 3) Insert a new ticket
-	let row: (i64,) = sqlx::query_as("insert into ticket (name) values ($1) returning id")
-		.bind("a new ticket")
-		.fetch_one(&pool)
-		.await?;
+    sqlx::query!(
+        r#"
+INSERT INTO users (id, name, password, email, created_at)
+VALUES ($1, $2, $3, $4, $5);
+        "#,
+        Uuid::new_v4(),
+        "Mickel",
+        "password",
+        "mickel@localhost",
+        chrono::Local::now().naive_local()
+    )
+    .execute(&pool)
+    .await?;
 
-	// 4) Select all tickets
-	let rows = sqlx::query("SELECT * FROM ticket").fetch_all(&pool).await?;
-	let str_result = rows
-		.iter()
-		.map(|r| format!("{} - {}", r.get::<i64, _>("id"), r.get::<String, _>("name")))
-		.collect::<Vec<String>>()
-		.join(", ");
-	println!("\n== select tickets with PgRows:\n{}", str_result);
+    const ALL_USERS_SQL: &str = r#"
+SELECT * FROM users;
+        "#;
 
-	// 5) Select query with map() (build the Ticket manually)
-	let select_query = sqlx::query("SELECT id, name FROM ticket");
-	let tickets: Vec<Ticket> = select_query
-		.map(|row: PgRow| Ticket {
-			id: row.get("id"),
-			name: row.get("name"),
-		})
-		.fetch_all(&pool)
-		.await?;
-	println!("\n=== select tickets with query.map...:\n{:?}", tickets);
+    let users: Vec<Users> = sqlx::query(ALL_USERS_SQL)
+        .map(|row: PgRow| {
+            let id: Uuid = row.try_get("id").unwrap();
+            let id = uuid::Uuid::from_u128(id.as_u128());
+            Users {
+                id,
+                name: row.try_get("name").unwrap(),
+                password: row.try_get("password").unwrap(),
+                email: row.try_get("email").unwrap(),
+                created_at: row.try_get("created_at").unwrap(),
+            }
+        })
+        .fetch_all(&pool)
+        .await?;
 
-	// 6) Select query_as (using derive FromRow)
-	let select_query = sqlx::query_as::<_, Ticket>("SELECT id, name FROM ticket");
-	let tickets: Vec<Ticket> = select_query.fetch_all(&pool).await?;
-	println!("\n=== select tickets with query.map...: \n{:?}", tickets);
+    println!("here");
+    println!("{:?}", users);
 
-	Ok(())
+    Ok(())
 }
